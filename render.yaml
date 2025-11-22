@@ -7,4 +7,4 @@ services:
     startCommand: gunicorn app:app --bind 0.0.0.0:$PORT
     envVars:
       - key: BOT_TOKEN
-        value: 7608150428:AAHS-RBJXGaB6VZPo1WSHbR3RyibUhthUbE
+        value: YOUR_BOT_TOKEN_HERE
