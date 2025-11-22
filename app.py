@@ -1,5 +1,6 @@
 import os
 import logging
+import asyncio
 from flask import Flask, request, jsonify
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
@@ -16,7 +17,7 @@ app = Flask(__name__)
 
 # Получаем токен из переменных окружения Render
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
-WEBHOOK_URL = os.environ.get('RENDER_EXTERNAL_URL')  # Render автоматически устанавливает эту переменную
+WEBHOOK_URL = os.environ.get('RENDER_EXTERNAL_URL')
 
 if not BOT_TOKEN:
     logging.error("❌ BOT_TOKEN не установлен!")
@@ -73,31 +74,22 @@ application = None
 def detect_language_advanced(text):
     """Улучшенное определение языка с использованием langdetect"""
     try:
-        # Если текст слишком короткий, используем упрощенный метод
         if len(text.strip()) < 3:
             return detect_language_simple(text)
         
-        # Получаем все возможные языки с вероятностями
         languages = detect_langs(text)
-        
-        # Берем язык с наибольшей вероятностью
         best_lang = str(languages[0]).split(':')[0]
         
-        # Проверяем, что язык поддерживается
         if best_lang in SUPPORTED_LANGUAGES:
             return best_lang
         else:
-            # Если основной язык не поддерживается, пробуем альтернативы
             for lang_prob in languages:
                 lang_code = str(lang_prob).split(':')[0]
                 if lang_code in SUPPORTED_LANGUAGES:
                     return lang_code
-            
-            # Если ничего не найдено, используем упрощенный метод
             return detect_language_simple(text)
             
     except LangDetectException:
-        # Если langdetect не смог определить, используем упрощенный метод
         return detect_language_simple(text)
     except Exception as e:
         logging.error(f"Language detection error: {e}")
@@ -105,7 +97,6 @@ def detect_language_advanced(text):
 
 def detect_language_simple(text):
     """Резервное определение языка по символам"""
-    # Счетчики для разных алфавитов
     cyrillic_count = 0
     latin_count = 0
     arabic_count = 0
@@ -113,25 +104,19 @@ def detect_language_simple(text):
     greek_count = 0
     
     for char in text:
-        # Кириллица (русский, украинский, и т.д.)
         if '\u0400' <= char <= '\u04FF':
             cyrillic_count += 1
-        # Латиница (английский, французский, и т.д.)
         elif '\u0041' <= char <= '\u007A' or '\u00C0' <= char <= '\u00FF':
             latin_count += 1
-        # Арабский
         elif '\u0600' <= char <= '\u06FF':
             arabic_count += 1
-        # Иврит
         elif '\u0590' <= char <= '\u05FF':
             hebrew_count += 1
-        # Греческий
         elif '\u0370' <= char <= '\u03FF':
             greek_count += 1
     
-    # Определяем преобладающий алфавит
     if cyrillic_count > latin_count and cyrillic_count > 0:
-        return 'ru'  # По умолчанию русский для кириллицы
+        return 'ru'
     elif arabic_count > 0:
         return 'ar'
     elif hebrew_count > 0:
@@ -139,7 +124,7 @@ def detect_language_simple(text):
     elif greek_count > 0:
         return 'el'
     else:
-        return 'en'  # По умолчанию английский
+        return 'en'
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome_text = """
@@ -198,7 +183,6 @@ async def show_languages(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Показать список языков"""
     languages_text = "🌍 **Поддерживаемые языки:**\n\n"
     
-    # Группируем по популярности
     popular_langs = ['en', 'ru', 'es', 'fr', 'de', 'it', 'pt', 'zh-cn', 'ja', 'ko']
     other_langs = [code for code in SUPPORTED_LANGUAGES.keys() if code not in popular_langs]
     
@@ -240,21 +224,16 @@ async def auto_translate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     text = update.message.text.strip()
     
-    # Игнорируем команды
     if text.startswith('/'):
         return
     
-    # Перевод на конкретный язык
     if ' /' in text and len(text.split(' /')) == 2:
         parts = text.split(' /')
         original_text, target_lang = parts[0].strip(), parts[1].strip().lower()
         
         if original_text and target_lang and target_lang in SUPPORTED_LANGUAGES:
             try:
-                # Определяем исходный язык
                 source_lang = detect_language_advanced(original_text)
-                
-                # Выполняем перевод
                 translation = GoogleTranslator(source=source_lang, target=target_lang).translate(original_text)
                 
                 source_emoji = LANGUAGE_EMOJIS.get(source_lang, '🌐')
@@ -274,13 +253,10 @@ async def auto_translate(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text("❌ Ошибка перевода")
                 return
     
-    # Автоматический перевод на несколько языков
     try:
-        # Определяем исходный язык
         source_lang = detect_language_advanced(text)
         source_lang_name = SUPPORTED_LANGUAGES.get(source_lang, source_lang)
         
-        # Получаем настройки для чата
         chat_id = update.message.chat_id
         target_languages = DEFAULT_TARGET_LANGUAGES
         
@@ -288,7 +264,6 @@ async def auto_translate(update: Update, context: ContextTypes.DEFAULT_TYPE):
             chat_id in context.bot_data['chat_settings']):
             target_languages = context.bot_data['chat_settings'][chat_id]['target_languages']
         
-        # Исключаем исходный язык и ограничиваем количество
         target_languages = [lang for lang in target_languages if lang != source_lang][:4]
         
         if not target_languages:
@@ -326,9 +301,12 @@ def setup_bot():
     """Настройка бота"""
     global application
     
-    application = Application.builder().token(BOT_TOKEN).build()
+    application = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .build()
+    )
     
-    # Добавляем обработчики
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("setlang", set_languages))
     application.add_handler(CommandHandler("lang", show_languages))
@@ -339,46 +317,46 @@ def setup_bot():
 
 @app.route('/')
 def index():
-    return jsonify({"status": "Telegram Translator Bot is running!", "webhook_url": f"{WEBHOOK_URL}/webhook"})
+    return jsonify({"status": "Telegram Translator Bot is running!"})
 
 @app.route('/webhook', methods=['POST'])
-def webhook():
+async def webhook():
     """Webhook endpoint для Telegram"""
     if request.method == 'POST':
         try:
-            update = Update.de_json(request.get_json(force=True), application.bot)
-            application.update_queue.put(update)
+            json_data = request.get_json(force=True)
+            update = Update.de_json(json_data, application.bot)
+            await application.process_update(update)
             return 'OK'
         except Exception as e:
             logging.error(f"Webhook error: {e}")
             return 'Error', 500
 
 @app.route('/set_webhook', methods=['GET'])
-def set_webhook():
+async def set_webhook():
     """Установка webhook"""
     if not WEBHOOK_URL:
         return "WEBHOOK_URL not set", 500
     
     webhook_url = f"{WEBHOOK_URL}/webhook"
-    success = application.bot.set_webhook(webhook_url)
     
-    if success:
+    try:
+        await application.bot.set_webhook(webhook_url)
         logging.info(f"Webhook set to: {webhook_url}")
         return f"Webhook set to: {webhook_url}"
-    else:
-        logging.error("Failed to set webhook")
+    except Exception as e:
+        logging.error(f"Failed to set webhook: {e}")
         return "Failed to set webhook", 500
 
 @app.route('/remove_webhook', methods=['GET'])
-def remove_webhook():
+async def remove_webhook():
     """Удаление webhook"""
-    success = application.bot.delete_webhook()
-    
-    if success:
+    try:
+        await application.bot.delete_webhook()
         logging.info("Webhook removed")
         return "Webhook removed"
-    else:
-        logging.error("Failed to remove webhook")
+    except Exception as e:
+        logging.error(f"Failed to remove webhook: {e}")
         return "Failed to remove webhook", 500
 
 @app.route('/health', methods=['GET'])
@@ -386,18 +364,10 @@ def health():
     """Health check endpoint"""
     return jsonify({"status": "healthy"})
 
-# Инициализируем бота при запуске
-bot_app = setup_bot()
+# Инициализируем бота
+setup_bot()
 
 if __name__ == '__main__':
-    # Настраиваем webhook если запущено на Render
-    if WEBHOOK_URL:
-        webhook_url = f"{WEBHOOK_URL}/webhook"
-        bot_app.bot.set_webhook(webhook_url)
-        logging.info(f"🤖 Бот запущен на Render! Webhook: {webhook_url}")
-    else:
-        logging.info("🤖 Бот запущен в polling режиме")
-    
     # Запускаем Flask app
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
